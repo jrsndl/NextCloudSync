@@ -10,7 +10,6 @@ from datetime import datetime
 # File name for storing folder states
 STATE_FILE_NAME = "folder_states.json"
 
-
 def load_folder_states(source_path):
     """
     Load previously saved folder states from the file in the source directory.
@@ -35,7 +34,6 @@ def load_folder_states(source_path):
 
     return folder_states
 
-
 def save_folder_states(source_path, folder_states):
     """
     Save the current folder states to a file in the source directory.
@@ -51,14 +49,15 @@ def save_folder_states(source_path, folder_states):
         # Log error if state saving fails
         logging.error(f"Failed to save folder states for {state_file_path}: {e}", exc_info=True)
 
-def configure_logging():
+def configure_logging(log_level=logging.INFO, log_directory="."):
     """
     Configures logging to write to both a file and the console.
     """
-    log_filename = f"folder_monitor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    os.makedirs(log_directory, exist_ok=True)
+    log_filename = os.path.join(log_directory, f"folder_monitor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
     logging.basicConfig(
-        level=logging.DEBUG,  # Set the base logging level
+        level=log_level,  # Set the base logging level
         format="%(asctime)s - [%(levelname)s] - %(message)s",
         handlers=[
             logging.FileHandler(log_filename),  # Log to file
@@ -66,7 +65,6 @@ def configure_logging():
         ],
     )
     logging.info("Logging initialized. Writing to log file and console.")
-
 
 def monitor_directory(source_path, destination_bases, check_interval=10,
                       stable_checks=3, retry_copy=2, ingest_prefix="in/vendors"):
@@ -96,7 +94,7 @@ def monitor_directory(source_path, destination_bases, check_interval=10,
                 if not pkg.get("is_synced_to_destination", False):
                     if pkg.get("stable_checks", 0) > stable_checks:
                         if retry_copy > pkg.get("copy_retry_count", 0):
-                            # this packages is not changing size and is not synced yet
+                            # Those packages are not changing size and is not synced yet
                             # let's copy
 
                             destination = pkg.get("destination_package_path", "")
@@ -175,17 +173,15 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
     Finds all valid source packages and their corresponding destination data, while
     filtering out folders that do not match naming conventions or are not associated
     with valid destination projects. Handles cached states for folder status and
-    calculates checksums for unsynchronized or uncached packages.
+    calculates checksums for not synchronized or uncached packages.
 
+    :param folder_states: the cached folder states from previous monitoring runs, if any.
+    :param retry_copy: number of copy retries before skipping package copy
     :param destination_projects: dick of existing cached destination projects
     :param stable_checks: how many checks before copying
     :param source_path: Root directory path for source folders. It contains project-user
         folders to be processed.
     :type source_path: str
-    :param destination_bases: List of base directories for destination projects. Each
-        directory in this list represents a location where processed folders should
-        be transferred.
-    :type destination_bases: list[str]
     :param ingest_prefix: A folder prefix to append in the construction of the
         destination folder hierarchy.
     :type ingest_prefix: str
@@ -244,7 +240,7 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
                     }
                 else:
                     # new package!
-                    logging.debug(f"New package detected: {one_folder} (Project: {project_name}, User: {user_name})")
+                    logging.info(f"New package detected: {one_folder} (Project: {project_name}, User: {user_name})")
                     all_packages[package_path] = {
                         "project_name": project_name,
                         "user_name": user_name,
@@ -281,11 +277,6 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
 
     return all_packages
 
-
-
-
-
-
 def find_actual_destination(destination_bases, project_name):
     """
     Finds the appropriate destination path for a given project name from the
@@ -308,7 +299,6 @@ def find_actual_destination(destination_bases, project_name):
             logging.warning(f"Destination base path does not exist: {base}")
     return None
 
-
 def get_folder_state(folder_path):
     """
     Gets the state of a folder by creating a hash of file paths and sizes.
@@ -324,9 +314,7 @@ def get_folder_state(folder_path):
             size = os.path.getsize(filepath)
             state.add((relative_path, size))
     state_hash = hash(frozenset(state))
-
     return state_hash
-
 
 def copy_folder(source, destination, destination_state):
     """
@@ -358,14 +346,9 @@ def copy_folder(source, destination, destination_state):
                 shutil.copy2(source_file, dest_file)  # Efficient file copy with metadata
                 logging.debug(f"Copied file: {source_file} -> {dest_file}")
                 copied = True
-
     return copied
 
-
 if __name__ == "__main__":
-    # Configure logging
-    configure_logging()
-
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description="Monitor a directory for new folders and copy files.")
@@ -373,11 +356,17 @@ if __name__ == "__main__":
                         help="The source directory to monitor.")
     parser.add_argument("destination_directories", type=str, nargs='+',
                         help="A list of base directories to search for matching destinations.")
+    parser.add_argument("--log-level", type=str, default="INFO",
+                        help="Set the logging level (DEBUG or INFO). Default is INFO.")
     parser.add_argument("--check_interval", type=int, default=3,
                         help="Time interval between checks (in seconds). Default is 3.")
     parser.add_argument("--number_of_checks", type=int, default=3,
                         help="Number of stability checks before copying. Default is 3.")
     args = parser.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.log_level.upper() == "DEBUG" else logging.INFO
+    configure_logging(log_level=log_level, log_directory=args.source_directory)
 
     try:
         monitor_directory(
