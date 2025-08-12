@@ -12,10 +12,26 @@ STATE_FILE_NAME = "folder_states.json"
 
 def load_folder_states(source_path):
     """
-    Load previously saved folder states from the file in the source directory.
+    Loads the folder states from a specified source directory.
 
-    :param source_path: A list of directories where state files are stored.
-    :return: A dictionary representing the folder states for each source directory.
+    This function attempts to read a JSON file from the given source directory.
+    If the file is found and successfully read, its contents are parsed into a
+    dictionary representing the folder states. If the file is not found or an
+    error occurs during reading or parsing, appropriate log warnings are generated.
+    Returns an empty dictionary if the file is absent or fails to load.
+
+    Parameters:
+        source_path (str): The path to the source directory where the folder states
+            file is located.
+
+    Returns:
+        dict: A dictionary representation of the folder states. Returns an empty
+            dictionary if the folder states file is not found or could not be
+            processed.
+
+    Raises:
+        Exception: Any exception arising during reading or parsing is caught, and
+            a log warning is generated instead of re-raising the exception.
     """
     folder_states = {}
     state_file_path = os.path.join(source_path, STATE_FILE_NAME)
@@ -36,10 +52,23 @@ def load_folder_states(source_path):
 
 def save_folder_states(source_path, folder_states):
     """
-    Save the current folder states to a file in the source directory.
+    Saves the folder states to a JSON file in the provided source directory.
 
-    :param source_path: A list of directories where state files should be stored.
-    :param folder_states: A dictionary representing the folder states to save.
+    This function serializes the provided folder states and writes them to a
+    JSON file named with the value of `STATE_FILE_NAME` in the specified
+    `source_path`. If the operation fails, it logs an error message with the
+    details of the failure.
+
+    Parameters:
+    source_path: str
+        The directory path where the folder state file will be saved.
+    folder_states: dict
+        A dictionary representing the states of folders to be saved.
+
+    Raises:
+    Exception
+        If an error occurs during the file writing process, it will be logged
+        but not re-raised.
     """
     state_file_path = os.path.join(source_path, STATE_FILE_NAME)
     try:
@@ -51,7 +80,16 @@ def save_folder_states(source_path, folder_states):
 
 def configure_logging(log_level=logging.INFO, log_directory="."):
     """
-    Configures logging to write to both a file and the console.
+    Configures the logging system for the application. This function sets up logging
+    to output both to a file and the console. The log files are stored in a specified
+    directory, and their names contain a timestamp for distinction.
+
+    Args:
+        log_level: The logging level to be set. Defaults to logging.INFO.
+        log_directory: The directory where log files will be stored. Defaults to ".".
+
+    Returns:
+        None
     """
     os.makedirs(log_directory, exist_ok=True)
     log_filename = os.path.join(log_directory, f"folder_monitor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
@@ -69,9 +107,24 @@ def configure_logging(log_level=logging.INFO, log_directory="."):
 def monitor_directory(source_path, destination_bases, check_interval=10,
                       stable_checks=3, retry_copy=2, ingest_prefix="in/vendors"):
     """
-    Monitors a source directory for changes, processes folders when their content remains stable
-    for a specified number of checks, and then efficiently copies them to matching destination
-    directories based on a predefined structure.
+    Monitors a specified directory for valid source packages and synchronizes these packages to appropriate
+    destinations by copying them once specific conditions such as stability checks and retry limits are satisfied.
+
+    Summary:
+    This function is designed to continuously monitor a source directory for valid package folders and synchronize
+    them to predefined destination directories. It periodically checks the source directory, evaluates the stability
+    and synchronization status of the packages, and attempts to copy them to their designated destinations.
+    Detailed metadata and checksums ensure data integrity during synchronization. The function continues running
+    with a specified time interval between scans and saves state information to allow for seamless recovery
+    during successive iterations.
+
+    Args:
+        source_path (str): The source directory path to monitor for package folders.
+        destination_bases (list[str]): A list of base paths representing destinations where the packages must be copied.
+        check_interval (int, optional): Time interval in seconds for rechecking the source directory. Default is 10.
+        stable_checks (int, optional): Number of consecutive checks required to confirm a package is stable. Default is 3.
+        retry_copy (int, optional): Maximum number of retry attempts allowed for copying a package. Default is 2.
+        ingest_prefix (str, optional): Prefix string determining the structure and sources to ingest packages. Default is "in/vendors".
     """
 
     # read cached source folders
@@ -146,15 +199,23 @@ def monitor_directory(source_path, destination_bases, check_interval=10,
 
 def find_all_destination_projects(destination_bases):
     """
-    Find all destination projects based on the provided destination base directories. The function
-    iterates through each directory in `destination_bases`, checks if the directory exists, and if
-    it does, retrieves the list of top-level folders within the directory. These folders are then
-    collated into a dictionary where the key is the top level directory and value is base directory plus
-    top-level folder.
+    Finds all destination projects in the provided base directories.
 
-    :param destination_bases: A list of strings representing the base directories to be checked for 
-        destination projects.
-    :return: A dictionary where keys are the project names (top level dirs) and values are the base directory plus top-level folder (full path).
+    This function scans all provided base directories to identify and collect the
+    names and paths of top-level folders within them. The function filters only
+    base directories that exist in the filesystem before processing.
+
+    Parameters:
+    destination_bases: list[str]
+        A list of directory paths to search for top-level projects.
+
+    Returns:
+    dict
+        A dictionary where the keys are folder names representing projects and the
+        values are their corresponding absolute paths.
+
+    Raises:
+    None
     """
     
     all_projects = {}
@@ -170,25 +231,31 @@ def find_all_destination_projects(destination_bases):
 
 def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_copy, destination_projects, folder_states):
     """
-    Finds all valid source packages and their corresponding destination data, while
-    filtering out folders that do not match naming conventions or are not associated
-    with valid destination projects. Handles cached states for folder status and
-    calculates checksums for not synchronized or uncached packages.
+    Finds all source packages in a specified directory and organizes metadata for further processing.
 
-    :param folder_states: the cached folder states from previous monitoring runs, if any.
-    :param retry_copy: number of copy retries before skipping package copy
-    :param destination_projects: dick of existing cached destination projects
-    :param stable_checks: how many checks before copying
-    :param source_path: Root directory path for source folders. It contains project-user
-        folders to be processed.
-    :type source_path: str
-    :param ingest_prefix: A folder prefix to append in the construction of the
-        destination folder hierarchy.
-    :type ingest_prefix: str
-    :return: A dictionary where keys are the absolute paths of valid source packages and
-        values are dictionaries containing metadata such as the `project_name`, `user_name`,
-        destination information, synchronization states, and the folder checksum.
-    :rtype: dict
+    This function scans through directories following a specific naming convention, examines the
+    contents of these directories, and checks against provided parameters to identify new or
+    existing packages. The results are returned in a dictionary containing package metadata.
+
+    Parameters:
+        source_path: str
+            Path to the source directory containing project-user folders.
+        ingest_prefix: str
+            Prefix to be added to the destination path segments.
+        stable_checks: int
+            Number of stable state verifications required before processing a package.
+        retry_copy: int
+            Maximum allowed retries for package copying attempts.
+        destination_projects: dict
+            Dictionary mapping project names to their corresponding destination paths.
+        folder_states: dict
+            Dictionary containing cached states of folders for checksum and synchronization validation.
+
+    Returns:
+        dict
+            A dictionary where the keys are paths to source packages and the values are dictionaries
+            containing package-specific metadata such as project name, user name, destination paths,
+            checksum values, synchronized status, detected date-time, and retry counts.
     """
 
     ingest_prefix = ingest_prefix.replace("\\", "/")
@@ -203,7 +270,7 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
     logging.debug(f"Stable checks {stable_checks},  retry copy {retry_copy}")
 
     for one_folder in current_folders:
-        match = re.match(r'^([^-]*)-([^-]*)$', one_folder)
+        match = re.match(r'^([^-]*)-([^-]*)-In$', one_folder)
         if match:
             project_name, user_name = match.groups()
             if project_name not in destination_projects.keys():
@@ -279,12 +346,22 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
 
 def find_actual_destination(destination_bases, project_name):
     """
-    Finds the appropriate destination path for a given project name from the
-    list of destination base paths.
+    Find the actual destination path for a given project name from a list of base paths.
 
-    :param destination_bases: List of base paths to search in.
-    :param project_name: The project name to match.
-    :return: The first matching destination path or None.
+    This function traverses through the provided base paths to locate a directory
+    containing the specified project name. It checks the top-level folder names within
+    each base path to determine if the project exists. If a match is found, the full
+    path to the project folder is returned; otherwise, it returns None.
+
+    Args:
+        destination_bases (list[str]): A list of base directory paths to search in.
+        project_name (str): The name of the project to locate.
+
+    Returns:
+        str or None: The full path to the project directory if found; otherwise, None.
+
+    Raises:
+        None
     """
     for base in destination_bases:
         if os.path.exists(base):
@@ -301,10 +378,20 @@ def find_actual_destination(destination_bases, project_name):
 
 def get_folder_state(folder_path):
     """
-    Gets the state of a folder by creating a hash of file paths and sizes.
+    Computes a unique hash representing the state of all files within a specified folder.
 
-    :param folder_path: Path of the folder to analyze.
-    :return: A set of tuples (relative file path, file size).
+    This function recursively traverses a folder and builds a set of all file paths relative
+    to the folder root along with their corresponding file sizes. The state of the folder is
+    then condensed into a unique hash representing its current state.
+
+    Args:
+        folder_path (str): The path to the folder whose state needs to be computed.
+
+    Returns:
+        int: A unique hash representing the state of the folder.
+
+    Raises:
+        None
     """
     state = set()
     for dirpath, _, filenames in os.walk(folder_path):
@@ -318,12 +405,26 @@ def get_folder_state(folder_path):
 
 def copy_folder(source, destination, destination_state):
     """
-    Copies only new or updated files from the source to the destination.
+    Copies a folder and its contents to a destination folder, skipping files that
+    already exist in the destination with the same relative path and size.
 
-    :param source: Source directory to copy files from.
-    :param destination: Destination directory to copy files to.
-    :param destination_state: Current state of the destination folder.
-    :return: True if files were copied, False otherwise.
+    This function traverses the source folder, reproduces its structure in the
+    destination, and efficiently copies files that are absent or modified relative
+    to the destination state. Metadata such as timestamps are preserved during the
+    copy process.
+
+    Parameters:
+    source: str
+        The path to the source folder that needs to be copied.
+    destination: str
+        The path to the destination folder where the contents should be copied.
+    destination_state: set[tuple[str, int]]
+        A set containing tuples of the relative paths and sizes of files already
+        present in the destination folder.
+
+    Returns:
+    bool
+        Returns True if at least one file was copied, otherwise returns False.
     """
     copied = False
     for dirpath, _, filenames in os.walk(source):
@@ -366,7 +467,7 @@ if __name__ == "__main__":
 
     # Configure logging
     log_level = logging.DEBUG if args.log_level.upper() == "DEBUG" else logging.INFO
-    configure_logging(log_level=log_level, log_directory=args.source_directory)
+    configure_logging(log_level=log_level, log_directory=f"{args.source_directory}/_synclogs")
 
     try:
         monitor_directory(
