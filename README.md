@@ -14,17 +14,31 @@ Sync file names and sizes are compared with the source and copy can be retried s
 ## Command line arguments
 next-cloud-sync.py source_directory destination_directories --check_interval 900 --number_of_checks 3 --log-level DEBUG
 
-source_directory
+**source_directory**
+
 Path to directory with project-nextclouduser-In NextCloud folders
 
-destination_directories
+**destination_directories**
+
 One or more paths to project root directories, separated by space
 
-check_interval
+**check_interval**
+
 How many seconds to wait between file size checks
 
-number_of_checks
+**number_of_checks**
+
 How many times has to package folder keep the same files and file sizes to be considered good for sync.
+
+**launchcmd**
+
+External command template to run for every synced package. Placeholders:
+* {project_name}
+* {user_name}
+* {package_name}
+* {destination_package_path}
+* {csv}
+
 
 ## Caching
 

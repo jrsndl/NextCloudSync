@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import time
 from datetime import datetime
 
@@ -104,8 +105,44 @@ def configure_logging(log_level=logging.INFO, log_directory="."):
     )
     logging.info("Logging initialized. Writing to log file and console.")
 
+def _run_post_sync_command(package, command):
+    """
+    Run the post-sync external command template from args.launch_cmd,
+    substituting tokens.
+
+    This function swallows exceptions and logs warnings; it uses shell=True
+    to allow complex commands. If you prefer, change to shlex.split + shell=False.
+    """
+    
+    def find_csv(directory):
+        if not os.path.isdir(directory):
+            return ""
+        for file in os.listdir(directory):
+            if file.lower().endswith('.csv'):
+                return os.path.join(directory, file)
+        # return directory if csv not found
+        return directory
+
+    try:
+        package['csv'] = find_csv(package.get("destination_package_path", ""))
+        cmd = command.format(**package)
+    except (KeyError, ValueError) as exc:
+        logging.error(
+            f"Running post-sync command failed for {package['project_name']} {package['user_name']} {package['package_name']}\n{exc}")
+        return
+
+    logging.info(f"Running post-sync command for {package['project_name']} {package['user_name']} {package['package_name']}")
+    try:
+        logging.debug(
+            f"Running post-sync command:\n{cmd}")
+        subprocess.run(cmd, shell=True, check=False)
+    except subprocess.CalledProcessError as exc:
+        logging.error(
+            f"Running post-sync command failed for {package['project_name']} {package['user_name']} {package['package_name']}\n{exc}")
+
+
 def monitor_directory(source_path, destination_bases, check_interval=10,
-                      stable_checks=3, retry_copy=2, ingest_prefix="in/vendors"):
+                      launch_cmd=None, stable_checks=3, retry_copy=2, ingest_prefix="in/vendors"):
     """
     Monitors a specified directory for valid source packages and synchronizes these packages to appropriate
     destinations by copying them once specific conditions such as stability checks and retry limits are satisfied.
@@ -162,6 +199,10 @@ def monitor_directory(source_path, destination_bases, check_interval=10,
                                     pkg["is_synced_to_destination"] = True
                                     pkg["copied_date_time"] = datetime.now().strftime("%Y%m%d_%H%M%S")
                                     logging.info(f"Files copied from {pkg_path} to {destination}...")
+                                    
+                                    # running post-sync command
+                                    if launch_cmd is not None:
+                                        _run_post_sync_command(pkg, launch_cmd)
                                 else:
                                     pkg["is_synced_to_destination"] = False
                                     pkg["copy_retry_count"] += 1
@@ -275,6 +316,7 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
             project_name, user_name = match.groups()
             if project_name not in destination_projects.keys():
                 # skip project names that do not exist in destination(s)
+                logging.warning(f"Project {project_name} does not exist in destination. Skipping...")
                 continue
 
             one_folder_full_path = os.path.join(source_path, one_folder)
@@ -296,6 +338,7 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
                     all_packages[package_path] = {
                         "project_name": project_name,
                         "user_name": user_name,
+                        "package_name": one_package,
                         "destination_project_path": destination_project_path,
                         "destination_package_path": destination_package_path,
                         "stable_checks": cached_package.get("stable_checks", 0),
@@ -311,6 +354,7 @@ def find_all_source_packages(source_path, ingest_prefix, stable_checks, retry_co
                     all_packages[package_path] = {
                         "project_name": project_name,
                         "user_name": user_name,
+                        "package_name": one_package,
                         "destination_project_path": destination_project_path,
                         "destination_package_path": destination_package_path,
                         "stable_checks": 0,
@@ -463,6 +507,18 @@ if __name__ == "__main__":
                         help="Time interval between checks (in seconds). Default is 3.")
     parser.add_argument("--number_of_checks", type=int, default=3,
                         help="Number of stability checks before copying. Default is 3.")
+    parser.add_argument(
+        '--launchcmd',
+        dest='launchcmd',
+        help=(
+            'External command template to run for every synced package. '
+            'Placeholders: {project_name} {user_name}, {package_name}, '
+            '{destination_package_path} {}'
+            'Example: "systemctl restart {package_name}" or '
+            '"python3 /path/to/script.py {project_name}"'
+        ),
+        default=None
+    )
     args = parser.parse_args()
 
     # Configure logging
@@ -473,7 +529,8 @@ if __name__ == "__main__":
         monitor_directory(
             source_path=args.source_directory,
             destination_bases=args.destination_directories,
-            check_interval=args.check_interval
+            check_interval=args.check_interval,
+            launch_cmd=args.launchcmd
         )
     except Exception as e:
         logging.error(f"Failed to start monitoring: {e}")
